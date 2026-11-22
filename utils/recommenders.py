@@ -251,26 +251,41 @@ def hybrid_recommendations(user_id, top_k=10, cf_weight=0.6, cb_weight=0.4):
     
     return [item[1]['rec'] for item in sorted_recs[:top_k]]
 
-def get_popular_articles(top_k=10):
+def get_popular_articles(top_k=20):
     """Get popular articles based on category diversity"""
     _ensure_data_loaded()
-    
-    # Simple popularity based on category distribution
     popular_articles = []
-    categories = _news_df['Category'].value_counts().head(5).index
     
-    for category in categories:
-        category_articles = _news_df[_news_df['Category'] == category].head(2)
-        for _, article in category_articles.iterrows():
-            if len(popular_articles) < top_k:
-                popular_articles.append({
-                    'NewsID': article['NewsID'],
-                    'Title': article['Title'],
-                    'Category': article['Category'],
-                    'Abstract': article['Abstract']
-                })
+    # Priority categories for diverse modern content
+    categories = ['gaming', 'sports', 'technology', 'finance', 'news', 'entertainment', 'lifestyle']
+    other_cats = [c for c in _news_df['Category'].dropna().unique() if c not in categories]
+    all_cats = categories + other_cats
     
-    return popular_articles
+    per_cat = max(2, top_k // len(all_cats) + 1)
+    for category in all_cats:
+        cat_df = _news_df[_news_df['Category'].astype(str).str.lower() == category.lower()]
+        if not cat_df.empty:
+            sample = cat_df.head(per_cat)
+            for _, article in sample.iterrows():
+                if len(popular_articles) < top_k:
+                    popular_articles.append({
+                        'NewsID': str(article['NewsID']),
+                        'Title': str(article['Title']) if pd.notna(article['Title']) else '',
+                        'Category': str(article['Category']) if pd.notna(article['Category']) else '',
+                        'Abstract': str(article['Abstract']) if pd.notna(article['Abstract']) else '',
+                        'URL': str(article['URL']) if pd.notna(article.get('URL')) else ''
+                    })
+    if len(popular_articles) < top_k:
+        remaining = _news_df.head(top_k - len(popular_articles))
+        for _, article in remaining.iterrows():
+            popular_articles.append({
+                'NewsID': str(article['NewsID']),
+                'Title': str(article['Title']) if pd.notna(article['Title']) else '',
+                'Category': str(article['Category']) if pd.notna(article['Category']) else '',
+                'Abstract': str(article['Abstract']) if pd.notna(article['Abstract']) else '',
+                'URL': str(article['URL']) if pd.notna(article.get('URL')) else ''
+            })
+    return popular_articles[:top_k]
 
 def get_user_list():
     """Get list of available users"""
@@ -311,36 +326,91 @@ def get_user_recommendations(user_id, method='hybrid', top_k=10):
     else:
         return get_popular_articles(top_k)
 
-def get_article_recommendations(keywords, top_k=10, category=None):
+def get_article_recommendations(keywords, top_k=20, category=None):
     """Get article recommendations based on keywords and optional category"""
     _ensure_data_loaded()
-    
-    # Start with all articles
     df = _news_df.copy()
     
     # Filter by category if specified
     if category and category.lower() != 'all':
-        category_mask = df['Category'].str.contains(category, case=False, na=False)
-        df = df[category_mask]
-        print(f"Filtering by category '{category}': {len(df)} articles found")
+        cat_lower = category.lower().strip()
+        cat_mask = (df['Category'].astype(str).str.lower() == cat_lower) | \
+                   (df['SubCategory'].astype(str).str.lower() == cat_lower)
+        if cat_mask.any():
+            df = df[cat_mask]
+
+    q_str = (keywords or '').strip().lower()
     
-    # Search in titles and abstracts
-    if keywords and keywords.strip():
-        mask = df['Title'].str.contains(keywords, case=False, na=False) | \
-               df['Abstract'].str.contains(keywords, case=False, na=False)
-        df = df[mask]
-    
-    results = df.head(top_k)
-    
+    # If no keywords or keyword is same as category, return top articles from category
+    if not q_str or (category and q_str == category.lower().strip()):
+        results = df.head(top_k)
+        recommendations = []
+        for _, article in results.iterrows():
+            recommendations.append({
+                'NewsID': str(article['NewsID']),
+                'Title': str(article['Title']) if pd.notna(article['Title']) else '',
+                'Category': str(article['Category']) if pd.notna(article['Category']) else '',
+                'Abstract': str(article['Abstract']) if pd.notna(article['Abstract']) else '',
+                'URL': str(article['URL']) if pd.notna(article.get('URL')) else '',
+                'score': 1.0
+            })
+        return recommendations
+
+    import re
+    # Keyword tokenization & expansion
+    terms = q_str.split()
+    expanded = list(terms)
+    for t in terms:
+        if t in ['modiji', 'modi', 'narendramodi', 'narendra']:
+            expanded.extend(['modi', 'narendra modi', 'india', 'prime minister'])
+        elif t in ['putin', 'vladimir']:
+            expanded.extend(['putin', 'vladimir putin', 'russia', 'moscow'])
+        elif t in ['usa', 'us', 'america', 'american', 'united states']:
+            expanded.extend(['usa', 'u.s.', 'us', 'united states', 'america', 'white house', 'biden', 'trump', 'washington', 'election'])
+        elif t in ['india', 'indian', 'bharat']:
+            expanded.extend(['india', 'delhi', 'modi', 'isro'])
+        elif t in ['russia', 'russian']:
+            expanded.extend(['russia', 'putin', 'moscow', 'brics'])
+        elif t in ['sports', 'sport']:
+            expanded.extend(['football', 'nfl', 'nba', 'cricket', 'game', 'championship'])
+        elif t in ['election', 'politics', 'elections', 'political']:
+            expanded.extend(['election', 'vote', 'president', 'congress', 'senate', 'government', 'campaign'])
+        elif t in ['tech', 'technology', 'ai']:
+            expanded.extend(['ai', 'artificial intelligence', 'apple', 'google', 'chips', 'nvidia'])
+
+    title_str = df['Title'].astype(str).str.lower()
+    abs_str = df['Abstract'].astype(str).str.lower()
+    cat_str = df['Category'].astype(str).str.lower()
+
+    scores = pd.Series(0.0, index=df.index)
+    # Exact full query match
+    exact_match = title_str.str.contains(re.escape(q_str), regex=True, na=False)
+    scores += exact_match.astype(float) * 5.0
+
+    for term in set(expanded):
+        esc = re.escape(term)
+        scores += title_str.str.contains(esc, regex=True, na=False).astype(float) * 3.0
+        scores += abs_str.str.contains(esc, regex=True, na=False).astype(float) * 1.5
+        scores += cat_str.str.contains(esc, regex=True, na=False).astype(float) * 2.0
+
+    matched = df[scores > 0].copy()
+    if matched.empty:
+        matched = df.head(top_k).copy()
+        matched['score'] = 0.5
+    else:
+        matched['score'] = scores[scores > 0]
+        matched = matched.sort_values(by='score', ascending=False).head(top_k)
+
     recommendations = []
-    for _, article in results.iterrows():
+    for _, article in matched.iterrows():
         recommendations.append({
-            'NewsID': article['NewsID'],
-            'Title': article['Title'],
-            'Category': article['Category'],
-            'Abstract': article['Abstract']
+            'NewsID': str(article['NewsID']),
+            'Title': str(article['Title']) if pd.notna(article['Title']) else '',
+            'Category': str(article['Category']) if pd.notna(article['Category']) else '',
+            'Abstract': str(article['Abstract']) if pd.notna(article['Abstract']) else '',
+            'URL': str(article['URL']) if pd.notna(article.get('URL')) else '',
+            'score': round(float(article.get('score', 1.0)), 3)
         })
-    
     return recommendations
 
 def get_hybrid_recommendations(user_id, top_k=10):
@@ -451,6 +521,7 @@ def get_trending_articles(k: int = 20):
             "title": article.get('Title', ''),
             "abstract": article.get('Abstract', '') if article.get('Abstract') else None,
             "category": article.get('Category', '') if article.get('Category') else None,
+            "url": article.get('URL', '') if article.get('URL') else None,
             "reason": "Trending"
         })
     
@@ -539,40 +610,25 @@ def recommend_for_user(user_id: str, k: int = 10, recent_clicks=None, locale: st
         return format_recommendations(trending_recs, "Trending")
 
 def search_by_keywords(q: str, k: int = 20, category: Optional[str] = None):
-    """Keyword search using your TF-IDF or content-based search.
-    MUST return: list[dict] with keys: item_id, score, title|opt, reason|opt."""
+    """Keyword search using TF-IDF / smart content search."""
     _ensure_data_loaded()
-    
     try:
-        # Use existing keyword search functionality
-        article_results = get_article_recommendations(q, top_k=k)
+        article_results = get_article_recommendations(q, top_k=k, category=category)
         formatted_results = []
-        
-        for _, article in article_results.iterrows():
-            # Apply category filter if specified
-            if category and category.lower() != 'all':
-                article_category = article.get('Category', '').lower()
-                article_subcategory = article.get('SubCategory', '').lower()
-                if (category.lower() not in article_category and 
-                    category.lower() not in article_subcategory):
-                    continue
-            
+        for article in article_results:
             formatted_results.append({
-                "item_id": article['NewsID'],
-                "score": 1.0,  # get_article_recommendations doesn't return scores
-                "title": article['Title'] if pd.notna(article['Title']) else f"Article {article['NewsID']}",
-                "abstract": article['Abstract'] if pd.notna(article['Abstract']) else None,
-                "category": article['Category'] if pd.notna(article['Category']) else None,
-                "reason": "Keyword match"
+                "item_id": str(article.get('NewsID', '')),
+                "score": float(article.get('score', 1.0)),
+                "title": str(article.get('Title', '')),
+                "abstract": article.get('Abstract') or None,
+                "category": article.get('Category') or None,
+                "url": article.get('URL') or None,
+                "reason": "Search Match"
             })
-        
         return formatted_results[:k]
-        
     except Exception as e:
         print(f"Keyword search failed: {e}")
-        # Fallback to simple title/abstract search
-        query_lower = q.lower()
-        matches = []
+        return []
         
         for _, article in _news_df.iterrows():
             # Apply category filter if specified

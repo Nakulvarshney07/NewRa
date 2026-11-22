@@ -1,7 +1,8 @@
 import type { RecItem } from '../types';
-import { motion } from 'framer-motion';
-import { FiHeart, FiShare2, FiStar, FiExternalLink } from 'react-icons/fi';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FiHeart, FiShare2, FiStar, FiExternalLink, FiCheck } from 'react-icons/fi';
 import styled from 'styled-components';
+import { useState } from 'react';
 
 const StyledArticleCard = styled(motion.div)`
   background: rgba(255, 255, 255, 0.95);
@@ -39,6 +40,24 @@ const StyledArticleCard = styled(motion.div)`
   }
 `;
 
+const ToastBadge = styled(motion.div)`
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.9);
+  color: white;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+`;
+
 const CardHeader = styled.div`
   padding: 1.5rem 1.5rem 1rem;
 `;
@@ -48,6 +67,14 @@ const CardMeta = styled.div`
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+`;
+
+const BadgesGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 `;
 
 const ItemBadge = styled.span`
@@ -57,6 +84,17 @@ const ItemBadge = styled.span`
   border-radius: 12px;
   font-size: 0.75rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+`;
+
+const CategoryBadge = styled.span`
+  background: rgba(102, 126, 234, 0.15);
+  color: #5a67d8;
+  padding: 0.25rem 0.65rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 `;
@@ -94,6 +132,17 @@ const CardTitle = styled.h3`
 
 const CardContent = styled.div`
   padding: 0 1.5rem 1.5rem;
+`;
+
+const AbstractText = styled.p`
+  font-size: 0.875rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-top: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 `;
 
 const ReasonContainer = styled.div`
@@ -157,32 +206,90 @@ const ActionButtons = styled.div`
   gap: 0.5rem;
 `;
 
-const ActionButton = styled(motion.button)`
+const ActionButton = styled(motion.button)<{ $liked?: boolean }>`
   padding: 0.5rem;
   background: none;
   border: none;
   cursor: pointer;
   border-radius: 8px;
-  color: #6b7280;
-  transition: all 0.3s ease;
+  color: ${props => (props.$liked ? '#ef4444' : '#6b7280')};
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 
   &:hover {
     background: rgba(102, 126, 234, 0.1);
-    color: #667eea;
-  }
-
-  &.liked {
-    color: #ef4444;
+    color: ${props => (props.$liked ? '#dc2626' : '#667eea')};
   }
 `;
 
 export default function ArticleCard({ item }: { item: RecItem }) {
-  const handleReadMore = () => {
-    // Since Microsoft URLs might be secured, we'll show an alert with article info
-    // instead of trying to navigate to potentially broken links
-    alert(
-      `Article: ${item.title}\n\nNews ID: ${item.item_id}\n\nNote: This article is from the Microsoft MIND dataset. The original URLs may be secured or no longer accessible. This is a demonstration of the recommendation system using the article metadata.`
-    );
+  const [isLiked, setIsLiked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(`liked_${item.item_id}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [toastMsg, setToastMsg] = useState<string>('');
+
+  const triggerToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 2200);
+  };
+
+  const handleLike = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextState = !isLiked;
+    setIsLiked(nextState);
+    try {
+      localStorage.setItem(`liked_${item.item_id}`, String(nextState));
+    } catch {
+      // storage unavailable
+    }
+    triggerToast(nextState ? '❤️ Liked article!' : '🤍 Removed from liked');
+  };
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const shareUrl = item.url && item.url.startsWith('http') ? item.url : window.location.href;
+    const shareText = `${item.title || 'Check out this news article'}\n\n${shareUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: item.title,
+          text: item.abstract || item.title,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard if user dismissed or unsupported
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareText);
+      triggerToast('📋 Link copied to clipboard!');
+    } catch {
+      triggerToast('📋 Article info copied!');
+    }
+  };
+
+  const handleReadMore = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (item.url && item.url.startsWith('http') && !item.url.includes('example.com')) {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+    } else {
+      alert(
+        `📰 ${item.title || 'Untitled'}\n\n` +
+        `Category: ${item.category || 'General'}\n` +
+        `Summary: ${item.abstract || 'No abstract available.'}\n\n` +
+        `News ID: ${item.item_id}`
+      );
+    }
   };
 
   return (
@@ -197,13 +304,29 @@ export default function ArticleCard({ item }: { item: RecItem }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Header with score and category */}
+      <AnimatePresence>
+        {toastMsg && (
+          <ToastBadge
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <FiCheck style={{ color: '#10b981' }} />
+            {toastMsg}
+          </ToastBadge>
+        )}
+      </AnimatePresence>
+
+      {/* Header with badges and score */}
       <CardHeader>
         <CardMeta>
-          <ItemBadge>{item.item_id}</ItemBadge>
+          <BadgesGroup>
+            <ItemBadge>{item.item_id}</ItemBadge>
+            {item.category && <CategoryBadge>{item.category}</CategoryBadge>}
+          </BadgesGroup>
           <ScoreContainer>
             <FiStar style={{ color: '#f59e0b', fontSize: '0.875rem' }} />
-            <ScoreText>{item.score?.toFixed(3) ?? 'N/A'}</ScoreText>
+            <ScoreText>{item.score !== undefined ? item.score.toFixed(3) : '1.000'}</ScoreText>
           </ScoreContainer>
         </CardMeta>
 
@@ -213,6 +336,8 @@ export default function ArticleCard({ item }: { item: RecItem }) {
 
       {/* Content */}
       <CardContent>
+        {item.abstract && <AbstractText>{item.abstract}</AbstractText>}
+
         {item.reason && (
           <ReasonContainer>
             <ReasonIcon>✨</ReasonIcon>
@@ -232,11 +357,27 @@ export default function ArticleCard({ item }: { item: RecItem }) {
           </ReadMoreButton>
 
           <ActionButtons>
-            <ActionButton whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
-              <FiHeart />
+            <ActionButton
+              $liked={isLiked}
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleLike}
+              title={isLiked ? 'Unlike' : 'Like'}
+            >
+              <FiHeart
+                style={{
+                  fill: isLiked ? '#ef4444' : 'none',
+                  fontSize: '1.1rem',
+                }}
+              />
             </ActionButton>
-            <ActionButton whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
-              <FiShare2 />
+            <ActionButton
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleShare}
+              title="Share or Copy Link"
+            >
+              <FiShare2 style={{ fontSize: '1.1rem' }} />
             </ActionButton>
           </ActionButtons>
         </CardActions>

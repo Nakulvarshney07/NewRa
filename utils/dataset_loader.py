@@ -5,12 +5,15 @@ import zipfile
 import tempfile
 from pathlib import Path
 
-def create_sample_dataset():
+def create_sample_dataset(dataset_dir=None):
     """Create a sample dataset with real-looking news data for demo purposes"""
     
     # Create the dataset directory
-    dataset_dir = Path(__file__).parent.parent / "MINDsmall_train"
-    dataset_dir.mkdir(exist_ok=True)
+    if dataset_dir is None:
+        dataset_dir = Path(__file__).parent.parent / "MINDsmall_train"
+    else:
+        dataset_dir = Path(dataset_dir)
+    dataset_dir.mkdir(parents=True, exist_ok=True)
     
     # Sample news data with diverse categories and realistic content
     sample_news = [

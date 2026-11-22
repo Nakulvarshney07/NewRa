@@ -14,6 +14,8 @@ class RecItem(BaseModel):
     abstract: Optional[str] = None
     category: Optional[str] = None
     score: Optional[float] = None
+    reason: Optional[str] = None
+    url: Optional[str] = None
 
 class RecommendResponse(BaseModel):
     items: List[RecItem]

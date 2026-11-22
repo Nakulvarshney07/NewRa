@@ -7,6 +7,7 @@ export interface RecItem {
   category?: string;
   score?: number;
   reason?: string;
+  url?: string;
 }
 
 // mirrors your FastAPI pydantic models

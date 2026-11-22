@@ -13,7 +13,13 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def download_from_azure_files(target_dir="/app/dataset"):
+def get_default_target_dir():
+    base = Path(__file__).parent.parent
+    if (base / "MINDsmall_train" / "news.tsv").exists():
+        return str(base)
+    return str(base / "dataset")
+
+def download_from_azure_files(target_dir=None):
     """
     Download MIND dataset from Azure Files using REST API
     
@@ -23,6 +29,8 @@ def download_from_azure_files(target_dir="/app/dataset"):
     Returns:
         str: Path to the extracted dataset directory
     """
+    if not target_dir:
+        target_dir = os.getenv("DATASET_DIR") or get_default_target_dir()
     dataset_path = os.path.join(target_dir, "MINDsmall_train")
     
     # Check if dataset already exists
@@ -96,7 +104,7 @@ def create_sample_fallback(dataset_path):
         logger.error(f"Failed to create sample dataset: {e}")
         raise
 
-def download_and_extract_dataset(target_dir="/app/dataset"):
+def download_and_extract_dataset(target_dir=None):
     """
     Download MIND dataset from Azure Files or create sample data
     
@@ -116,7 +124,7 @@ def ensure_dataset_available():
         str: Path to dataset directory
     """
     # Check environment variable for dataset directory
-    dataset_dir = os.getenv("DATASET_DIR", "/app/dataset")
+    dataset_dir = os.getenv("DATASET_DIR") or get_default_target_dir()
     
     # Try to download/create dataset
     try:

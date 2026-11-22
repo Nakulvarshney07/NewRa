@@ -42,8 +42,10 @@ export default function Home() {
   const [categories, setCategories] = useState<Record<string, number>>({});
 
   const search = useMutation({
-    mutationFn: async () => {
-      const items = await api.search(q, 20, selectedCategory || undefined);
+    mutationFn: async (params?: { query?: string; category?: string }) => {
+      const searchQuery = params?.query !== undefined ? params.query : q;
+      const searchCat = params?.category !== undefined ? params.category : selectedCategory;
+      const items = await api.search(searchQuery, 20, searchCat || undefined);
       setResults(items);
       const counts = items.reduce((acc, r) => {
         const c = (r.category || "Unknown").trim();
@@ -53,7 +55,6 @@ export default function Home() {
       setCategories(counts);
       return items;
     },
-    onSuccess: () => setQ(''),
   });
 
   const exportMutation = useMutation({
@@ -192,11 +193,11 @@ export default function Home() {
           <SearchContainer style={{ maxWidth: '600px', margin: '0 auto' }}>
             <div style={{ position: 'relative' }}>
               <SearchInput
-                placeholder="Search for news topics, keywords, or categories (try: sports, health, finance)..."
+                placeholder="Search news, topics, or categories (try: sports, technology, finance)..."
                 value={q}
                 onChange={e => setQ(e.target.value)}
                 onKeyPress={e =>
-                  e.key === 'Enter' && q.trim() && search.mutate()
+                  e.key === 'Enter' && q.trim() && search.mutate({ query: q, category: selectedCategory })
                 }
                 whileFocus={{ scale: 1.02 }}
                 transition={{ duration: 0.2 }}
@@ -259,20 +260,20 @@ export default function Home() {
                 justifyContent: 'center',
               }}
             >
-              {['sports', 'health', 'finance', 'news', 'entertainment'].map(
+              {['politics', 'news', 'sports', 'technology', 'finance', 'entertainment'].map(
                 tag => (
                   <button
                     key={tag}
                     onClick={() => {
                       setQ(tag);
                       setSelectedCategory(tag);
-                      setTimeout(() => search.mutate(), 100);
+                      search.mutate({ query: tag, category: tag });
                     }}
                     style={{
                       padding: '0.5rem 1rem',
                       background:
                         selectedCategory === tag
-                          ? 'rgba(255, 255, 255, 0.2)'
+                          ? 'rgba(255, 255, 255, 0.25)'
                           : 'rgba(255, 255, 255, 0.1)',
                       border: '1px solid rgba(255, 255, 255, 0.2)',
                       borderRadius: '20px',
@@ -280,16 +281,17 @@ export default function Home() {
                       fontSize: '0.875rem',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease',
+                      fontWeight: selectedCategory === tag ? 700 : 500,
                     }}
                     onMouseEnter={e => {
                       e.currentTarget.style.background =
-                        'rgba(255, 255, 255, 0.2)';
+                        'rgba(255, 255, 255, 0.25)';
                       e.currentTarget.style.transform = 'scale(1.05)';
                     }}
                     onMouseLeave={e => {
                       e.currentTarget.style.background =
                         selectedCategory === tag
-                          ? 'rgba(255, 255, 255, 0.2)'
+                          ? 'rgba(255, 255, 255, 0.25)'
                           : 'rgba(255, 255, 255, 0.1)';
                       e.currentTarget.style.transform = 'scale(1)';
                     }}
@@ -301,7 +303,7 @@ export default function Home() {
             </div>
 
             <SearchButton
-              onClick={() => q.trim() && search.mutate()}
+              onClick={() => q.trim() && search.mutate({ query: q, category: selectedCategory })}
               disabled={!q.trim() || search.isPending}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.98 }}
